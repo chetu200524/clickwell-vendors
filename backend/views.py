@@ -2739,7 +2739,9 @@ def all_products(request):
     stock=out_of_stock keeps products whose every option quantity is 0.
     A signed-in vendor sees only that shop's products.
     """
-    products = Product.objects.select_related('category').order_by('-created_at')
+    products = Product.objects.select_related('category').prefetch_related(
+        'options_set__images_set',
+    ).order_by('-created_at')
     vendor = _signed_in_vendor(request)
     if vendor is not None:
         products = products.filter(vendor=vendor)
@@ -2774,12 +2776,57 @@ def all_products(request):
         return Response({'error': 'limit and offset must be whole numbers.'}, status=400)
 
     total = products.count()
-    page = products[offset:offset + limit].prefetch_related('options_set__images_set')
+    page = products[offset:offset + limit]
     return Response({
         'count': total,
         'offset': offset,
         'limit': limit,
         'results': ProductSerializer(page, many=True, context={'request': request}).data,
+    })
+
+
+@api_view(['GET'])
+def vendor_catalog_summary(request):
+    vendor = _signed_in_vendor(request)
+    if vendor is None:
+        return Response({'error': 'Sign in again.'}, status=401)
+
+    products = Product.objects.filter(vendor=vendor)
+    annotated = products.annotate(
+        option_count=Count('options_set', distinct=True),
+        in_stock_count=Count(
+            'options_set',
+            filter=Q(options_set__quantity__gt=0),
+            distinct=True,
+        ),
+        low_option_count=Count(
+            'options_set',
+            filter=Q(options_set__quantity__gt=0, options_set__quantity__lte=5),
+            distinct=True,
+        ),
+    )
+    subcategory_names = set()
+    for chips, legacy in products.values_list('subcategories', 'subcategory'):
+        items = chips if isinstance(chips, list) else []
+        if not items and legacy:
+            items = [part.strip() for part in str(legacy).split(',')]
+        for name in items:
+            cleaned = str(name or '').strip()
+            if cleaned:
+                subcategory_names.add(cleaned.casefold())
+
+    latest = products.select_related('category').prefetch_related(
+        'options_set__images_set',
+    ).order_by('-created_at')[:6]
+    return Response({
+        'total': products.count(),
+        'in_stock': annotated.filter(in_stock_count__gt=0, low_option_count=0).count(),
+        'low_stock': annotated.filter(in_stock_count__gt=0, low_option_count__gt=0).count(),
+        'out_of_stock': annotated.filter(option_count__gt=0, in_stock_count=0).count(),
+        'unclassified': annotated.filter(option_count=0).count(),
+        'categories': Category.objects.count(),
+        'subcategories': len(subcategory_names),
+        'latest': ProductSerializer(latest, many=True, context={'request': request}).data,
     })
 
 
