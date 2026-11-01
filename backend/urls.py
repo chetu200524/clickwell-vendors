@@ -16,6 +16,7 @@ from backend.views import (
     delete_product_image_enhanced, upload_product_image_enhanced, update_product_option_enhanced, create_product_option,
     update_all_order_products_status_enhanced, update_order_with_confirmation, calculate_delivery_charge, inform_me,
     check_inform_me, check_app_version, app_config, suggest_product, subcategory_suggestions,
+    vendor_catalog_summary,
     delivery_timing, sales_summary, sales_status_items, store_list, popular_cities, vendor_categories, vendor_category_detail,
     vendor_category_order, vendor_order_rules, vendor_delivery_pincodes
 
@@ -56,6 +57,7 @@ urlpatterns = [
     path('subcategories/', subcategory_suggestions, name='subcategory_suggestions'),
     path('vendor/login/', vendor_login, name='vendor_login'),
     path('vendor/profile/', vendor_profile, name='vendor_profile'),
+    path('vendor/catalog_summary/', vendor_catalog_summary, name='vendor_catalog_summary'),
     path('vendor/plans/', vendor_plans, name='vendor_plans'),
     path('vendor/plans/pay/', vendor_plan_pay, name='vendor_plan_pay'),
     path('vendor/plans/verify/', vendor_plan_verify, name='vendor_plan_verify'),
