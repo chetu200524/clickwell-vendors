@@ -1,0 +1,40 @@
+/* ClickWell Quick Commerce — admin theme (#4169E1) */
+:root {
+  --clickwell-primary: #4169e1;
+  --clickwell-primary-dark: #3558c4;
+  --clickwell-accent: #e23744;
+}
+
+.navbar-primary,
+.bg-primary,
+.btn-primary,
+.sidebar-dark-primary .nav-sidebar > .nav-item > .nav-link.active {
+  background-color: var(--clickwell-primary) !important;
+}
+
+.btn-primary,
+.btn-primary:hover,
+.btn-primary:focus {
+  border-color: var(--clickwell-primary-dark) !important;
+  background-color: var(--clickwell-primary) !important;
+}
+
+a,
+.nav-link.active,
+.brand-link .brand-text {
+  color: var(--clickwell-primary);
+}
+
+.login-logo a,
+#jazzy-logo {
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.content-header h1 {
+  font-weight: 700;
+}
+
+.card-primary.card-outline {
+  border-top: 3px solid var(--clickwell-primary);
+}

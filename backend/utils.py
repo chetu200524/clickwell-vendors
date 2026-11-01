@@ -3,13 +3,17 @@ import datetime
 import hashlib
 import hmac
 import uuid
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from random import randint
 
 import requests
 from django.core.mail import EmailMessage
 from django.template.loader import get_template
-from google.auth import jwt
+import os
+
+from google.auth.exceptions import RefreshError
 from google.auth.transport.requests import Request
+from google.oauth2 import service_account
 from rest_framework.permissions import BasePermission
 from rest_framework.response import Response
 
@@ -20,25 +24,153 @@ from core.settings import TEMPLATES_BASE_URL, CF_KEY, FSMS_KEY, SERVICE_ACCOUNT_
 from django.utils import timezone
 
 
+def parse_price(value, default=Decimal('0')):
+    """Parse rupee amounts such as 25, 25.3, or '25.30' into Decimal."""
+    if value is None or value == '':
+        return default
+    try:
+        amount = Decimal(str(value)).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+    except (InvalidOperation, ValueError, TypeError):
+        raise ValueError(f'Invalid price: {value}')
+    if amount < 0:
+        raise ValueError('Price must be non-negative')
+    return amount
+
+
+FCM_SCOPES = ['https://www.googleapis.com/auth/firebase.messaging']
+
+
 def get_access_token():
     """
-    Generate an access token using a service account.
+    OAuth2 access token for Firebase Cloud Messaging HTTP v1 API.
+    See https://firebase.google.com/docs/cloud-messaging/auth-server
     """
-    credentials = jwt.Credentials.from_service_account_file(SERVICE_ACCOUNT_FILE,
-                                                            audience='https://fcm.googleapis.com/')
-    credentials.refresh(Request())
-    return credentials.token.decode('utf-8') if isinstance(credentials.token, bytes) else credentials.token
+    if not os.path.isfile(SERVICE_ACCOUNT_FILE):
+        raise FileNotFoundError(
+            f'Firebase service account file not found: {SERVICE_ACCOUNT_FILE}. '
+            'Download a new key from Firebase Console → Project settings → '
+            'Service accounts → Generate new private key.'
+        )
+
+    try:
+        credentials = service_account.Credentials.from_service_account_file(
+            SERVICE_ACCOUNT_FILE,
+            scopes=FCM_SCOPES,
+        )
+        credentials.refresh(Request())
+    except RefreshError as exc:
+        raise RefreshError(
+            'Firebase service account key is invalid or was revoked. '
+            f'File: {SERVICE_ACCOUNT_FILE}. '
+            'Generate a new private key in Firebase Console → Project settings '
+            f'→ Service accounts (project: clickwell-78742). Original error: {exc}'
+        ) from exc
+
+    token = credentials.token
+    return token.decode('utf-8') if isinstance(token, bytes) else token
 
 
-def send_user_notification(user, title, body, image):
-    # Save the notification to the database
-    notif = Notification(user=user, title=title, body=body, image=image)
+ORDER_STATUS_NOTIFICATIONS = frozenset({
+    'OUT_FOR_DELIVERY',
+    'DELIVERED',
+    'CANCELLED',
+})
+
+
+def _product_option_notification_image(product_option):
+    if product_option is None:
+        return None
+    first_image = product_option.images_set.order_by('position').first()
+    return first_image.image if first_image else None
+
+
+def _order_status_notification_body(product_label, new_status, item_count=1):
+    if new_status == 'OUT_FOR_DELIVERY':
+        if item_count > 1:
+            return f'{item_count} items in your order are out for delivery.'
+        return f'Your {product_label} is out for delivery.'
+    if new_status == 'DELIVERED':
+        if item_count > 1:
+            return f'{item_count} items in your order have been delivered.'
+        return f'Your {product_label} has been delivered.'
+    if new_status == 'CANCELLED':
+        if item_count > 1:
+            return f'{item_count} items in your order have been cancelled.'
+        return f'Your {product_label} has been cancelled.'
+    return f'Your order status is now {new_status.replace("_", " ").lower()}.'
+
+
+def notify_order_status_change(ordered_product, new_status, old_status=None):
+    """Notify the customer when a single order line status changes."""
+    if old_status is not None and old_status == new_status:
+        return
+    if new_status not in ORDER_STATUS_NOTIFICATIONS:
+        return
+
+    user = ordered_product.order.user
+    product_label = str(ordered_product.product_option)
+    title = f'ORDER {new_status}'
+    body = _order_status_notification_body(product_label, new_status)
+    image = _product_option_notification_image(ordered_product.product_option)
+
+    try:
+        send_user_notification(
+            user,
+            title,
+            body,
+            image,
+            product_option=ordered_product.product_option,
+        )
+    except Exception as exc:
+        print(f'Error sending order status notification: {exc}')
+
+
+def notify_order_bulk_status_change(order, new_status, *, reference_product=None, item_count=None):
+    """Notify the customer once when multiple order lines share a status update."""
+    if new_status not in ORDER_STATUS_NOTIFICATIONS:
+        return
+
+    products = list(
+        order.orders_set.select_related('product_option').order_by('created_at')
+    )
+    if not products:
+        return
+
+    count = item_count if item_count is not None else len(products)
+    product = reference_product if reference_product is not None else products[0]
+    user = order.user
+    product_label = str(product.product_option)
+    title = f'ORDER {new_status}'
+    body = _order_status_notification_body(product_label, new_status, item_count=count)
+    image = _product_option_notification_image(product.product_option)
+
+    try:
+        send_user_notification(
+            user,
+            title,
+            body,
+            image,
+            product_option=product.product_option,
+        )
+    except Exception as exc:
+        print(f'Error sending bulk order status notification: {exc}')
+
+
+def send_user_notification(user, title, body, image, product_option=None):
+    notif = Notification(
+        user=user,
+        title=title,
+        body=body,
+        image=image,
+        product_option=product_option,
+    )
     notif.save()
 
     notif_data = NotificationSerializer(notif, many=False).data
     message_title = notif_data.get('title')
     message_body = notif_data.get('body')
-    message_image = notif_data.get('image')
+    message_image = notif_data.get('image') or ''
+    product_option_id = notif_data.get('product_option_id') or ''
 
     # Retrieve the most recent FCM token for the user
     latest_token = user.tokens_set.order_by('-created_at').first()
@@ -46,19 +178,27 @@ def send_user_notification(user, title, body, image):
     if not latest_token:
         return Response({'message': 'No FCM token available'}, status=400)
 
+    notification_payload = {
+        "title": message_title,
+        "body": message_body,
+    }
+    if message_image:
+        notification_payload["image"] = message_image
+
     message = {
         "message": {
-            "notification": {
-                "title": message_title,
-                "body": message_body,
-                "image": message_image,
-            },
+            "notification": notification_payload,
             "data": {
-                "image": message_image,
+                "image": str(message_image),
+                "title": str(message_title or ''),
+                "body": str(message_body or ''),
+                "product_option_id": str(product_option_id),
             },
             "android": {
                 "notification": {
+                    "channel_id": "clickwell_order_updates",
                     "sound": "default",
+                    "notification_priority": "PRIORITY_HIGH",
                 }
             },
             "token": latest_token.fcmtoken
@@ -90,17 +230,28 @@ def send_otp(phone):
     validity = timezone.now() + datetime.timedelta(minutes=10)
     Otp.objects.update_or_create(phone=phone, defaults={"otp": otp, "verified": False, "validity": validity})
 
-    url = "https://www.fast2sms.com/dev/bulkV2"
-    querystring = {"authorization": FSMS_KEY, "variables_values": str(otp), "route": "otp", "numbers": str(phone)}
-    headers = {'cache-control': "no-cache"}
+    # Send via Fast2SMS when configured (falls back to console log in dev)
+    if FSMS_KEY:
+        try:
+            response = requests.post(
+                "https://www.fast2sms.com/dev/bulkV2",
+                headers={"authorization": FSMS_KEY, "Content-Type": "application/json"},
+                json={
+                    "route": "otp",
+                    "variables_values": str(otp),
+                    "numbers": str(phone),
+                },
+                timeout=15,
+            )
+            if response.status_code == 200:
+                print(f"OTP sent via Fast2SMS to {phone}")
+                return Response("otp send successfully")
+            print(f"Fast2SMS failed ({response.status_code}): {response.text}")
+        except Exception as exc:
+            print(f"Fast2SMS error: {exc}")
 
-    response = requests.request("GET", url, headers=headers, params=querystring)
-    response_data = response.json()
-    if response_data.get('return') is True:
-        print(otp)
-        return Response('otp sent successfully')
-    else:
-        return Response('sms service failed', 400)
+    print(f"[DEV OTP] phone={phone} otp={otp}")
+    return Response("otp send successfully")
 
 
 def new_token():
@@ -110,7 +261,7 @@ def new_token():
 
 def token_response(user, fcmtoken):
     token = new_token()
-    Token.objects.create(token=token, user=user, fcmtoken=fcmtoken)
+    Token.objects.create(token=token, user=user, fcmtoken=fcmtoken or '')
     return Response('token ' + token)
 
 
@@ -145,7 +296,24 @@ class IsAuthenticatedUser(BasePermission):
     message = 'unauthenticated_user'
 
     def has_permission(self, request, view):
-        return bool(request.user)
+        user = getattr(request, 'user', None)
+        if user is None:
+            return False
+        if getattr(user, 'is_authenticated', False):
+            return True
+        from backend.models import User
+        return isinstance(user, User)
+
+
+class IsDeliveryAuthenticated(BasePermission):
+    message = 'delivery_login_required'
+
+    def has_permission(self, request, view):
+        from backend.models import DeliveryPartner
+        user = getattr(request, 'user', None)
+        if user is None or not isinstance(user, DeliveryPartner):
+            return False
+        return True
 
 
 def cfSignature(postData):

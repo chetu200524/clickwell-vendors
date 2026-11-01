@@ -13,6 +13,10 @@ import os
 from pathlib import Path
 import requests
 
+from .py314 import apply as _apply_py314_context_fix
+
+_apply_py314_context_fix()
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -81,8 +85,10 @@ WSGI_APPLICATION = 'core.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
-    }
+        'NAME': BASE_DIR / 'db.sqlite3',  # DESTINATION
+    },
+
+
 }
 
 # DATABASES = {
@@ -121,13 +127,11 @@ AUTH_PASSWORD_VALIDATORS = [
 
 LANGUAGE_CODE = 'en-us'
 
-TIME_ZONE = 'UTC'
+TIME_ZONE = 'Asia/Kolkata'
 
 USE_I18N = True
 
 USE_TZ = True
-
-TIME_ZONE =  'Asia/Kolkata'
 
 
 
@@ -136,17 +140,83 @@ TIME_ZONE =  'Asia/Kolkata'
 
 STATIC_URL = 'static/'
 
-STATIC_ROOT = '/home/Clickwelladmin/DjangoAdmin/clickwell-backend/core/static'
+STATICFILES_DIRS = [os.path.join(BASE_DIR, 'static')]
+
+STATIC_ROOT = os.environ.get('DJANGO_STATIC_ROOT', str(BASE_DIR / 'staticfiles'))
 
 JAZZMIN_SETTINGS = {
-    "welcome_sign": "Welcome to the ClickWell Admin Panel",
-    "copyright": "ClickWell Ltd",
-
+    "site_title": "ClickWell QC Admin",
+    "site_header": "ClickWell Quick Commerce",
+    "site_brand": "ClickWell",
+    "site_logo": None,
+    "welcome_sign": "Welcome to ClickWell operations hub",
+    "copyright": "ClickWell Quick Commerce",
+    "search_model": ["backend.User", "backend.Product", "backend.Order"],
+    "topmenu_links": [
+        {"name": "Store API", "url": "/api/categories/", "new_window": True},
+        {"name": "Django Admin", "url": "admin:index"},
+    ],
+    "show_sidebar": True,
+    "navigation_expanded": True,
+    "hide_apps": [],
+    "hide_models": [],
+    "order_with_respect_to": [
+        "backend", "backend.Category", "backend.Product", "backend.ProductOption",
+        "backend.PageItem", "backend.Order", "backend.OrderedProduct",
+        "backend.User", "backend.Notification",
+    ],
+    "icons": {
+        "backend.User": "fas fa-users",
+        "backend.Category": "fas fa-th-large",
+        "backend.Product": "fas fa-box",
+        "backend.ProductOption": "fas fa-tags",
+        "backend.PageItem": "fas fa-layer-group",
+        "backend.Order": "fas fa-shopping-bag",
+        "backend.OrderedProduct": "fas fa-truck",
+        "backend.Notification": "fas fa-bell",
+        "backend.Slide": "fas fa-images",
+        "backend.ContactInfo": "fas fa-phone",
+        "backend.AppVersion": "fas fa-mobile-alt",
+    },
+    "default_icon_parents": "fas fa-folder",
+    "default_icon_children": "fas fa-circle",
+    "related_modal_active": True,
+    "custom_css": "admin/css/clickwell_admin.css",
+    "use_google_fonts_cdn": True,
+    "show_ui_builder": False,
 }
 
-#JAZZMIN_UI_TWEAKS = {
- #   "theme": "darkly",
-#}
+JAZZMIN_UI_TWEAKS = {
+    "navbar_small_text": False,
+    "footer_small_text": True,
+    "body_small_text": False,
+    "brand_small_text": False,
+    "brand_colour": "navbar-primary",
+    "accent": "accent-primary",
+    "navbar": "navbar-dark navbar-primary",
+    "no_navbar_border": False,
+    "navbar_fixed": True,
+    "layout_boxed": False,
+    "footer_fixed": False,
+    "sidebar_fixed": True,
+    "sidebar": "sidebar-dark-primary",
+    "sidebar_nav_small_text": False,
+    "sidebar_disable_expand": False,
+    "sidebar_nav_child_indent": True,
+    "sidebar_nav_compact_style": False,
+    "sidebar_nav_legacy_style": False,
+    "sidebar_nav_flat_style": True,
+    "theme": "default",
+    "dark_mode_theme": None,
+    "button_classes": {
+        "primary": "btn-primary",
+        "secondary": "btn-secondary",
+        "info": "btn-info",
+        "warning": "btn-warning",
+        "danger": "btn-danger",
+        "success": "btn-success",
+    },
+}
 
 
 
@@ -177,10 +247,12 @@ CORS_ALLOWED_ORIGINS = [
 
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
-        'rest_framework.authentication.SessionAuthentication',
-        'rest_framework.authentication.BasicAuthentication',
         'backend.authentication.TokenAuthentication',
-    ]
+        'rest_framework.authentication.SessionAuthentication',
+    ],
+    'DEFAULT_PERMISSION_CLASSES': [
+        'rest_framework.permissions.AllowAny',
+    ],
 }
 
 CF_ID = 'TEST372457e2b0ea32699ebf9e3ce1754273'
@@ -191,17 +263,21 @@ FSMS_KEY = "fkN495zDPUhQQOTHhWNAto9tXEQMZc6RWqxEBmIZhrDHW4bvryTZm2f3y9Bi"
 FCM_KEY = 'AAAAjFPAKtE:APA91bEbKDya5-EOBiepTXmjTOXA_DS-vytnxKJocUetGGoMZOz4PgUFVexOMToudGPsv19rVQK_autbOYjy88QCcTgZ7SgzSfwQYuDQ_FwzgQ4yynx30yrsLQi-YqmyZF0TYy7yaLcv'
 
 #SERVICE_ACCOUNT_FILE = os.path.join(BASE_DIR, '/home/Clickwelladmin/DjangoAdmin/clickwell-backend/core/credentials/serviceAccountKey.json')
-SERVICE_ACCOUNT_FILE = os.path.join(BASE_DIR,'/home/Clickwelladmin/DjangoAdmin/clickwell-backend/core/credentials/serviceAccountKey.json')
+SERVICE_ACCOUNT_FILE = os.path.join(BASE_DIR,'credentials/serviceAccountKey.json')
 
 PROJECT_ID = 'clickwell-78742'
 
 # TODO ##TESTING MODE
-#RAZORPAY_KEY_ID = "rzp_test_YCWjqfR1L6Ef6w"
-#RAZORPAY_KEY_SECRET = "REXlVFdOTSImGL1OZCm8VZVl"
+RAZORPAY_KEY_ID = "rzp_test_YCWjqfR1L6Ef6w"
+RAZORPAY_KEY_SECRET = "REXlVFdOTSImGL1OZCm8VZVl"
 
-#TODO #PRODUCTION MODE
-RAZORPAY_KEY_ID = "rzp_live_du1Zpz1zCpez7f"
-RAZORPAY_KEY_SECRET = "qOoISkBxU3zhc2JYHYUJLnub"
+# #TODO #PRODUCTION MODE
+# RAZORPAY_KEY_ID = "rzp_live_du1Zpz1zCpez7f"
+# RAZORPAY_KEY_SECRET = "qOoISkBxU3zhc2JYHYUJLnub"
+
+# Delivery Configuration — exposed to app via GET /api/app_config/
+FREE_DELIVERY_THRESHOLD = 100  # Minimum order amount (₹) for free delivery
+DELIVERY_CHARGE_AMOUNT = 15
 
 # 🔹 APNs Certificate Configuration for PythonAnywhere
 APNS_CA_CERT_PATH = os.path.join(BASE_DIR, "core", "USERTrust_RSA.crt")
@@ -230,3 +306,6 @@ except ImportError:
 import logging
 logger = logging.getLogger(__name__)
 logger.info(f"APNs Certificate Path: {APNS_CA_CERT_PATH}")
+
+
+
